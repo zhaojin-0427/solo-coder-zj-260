@@ -176,3 +176,14 @@ export const RATIO_CONFIG = {
   maxPart: 10,
   totalParts: 12
 };
+
+export const COMBO_CONFIG = {
+  baseMultiplier: 1.0,
+  multiplierPerCombo: 0.2,
+  maxMultiplier: 3.0,
+  breakOnFailure: true
+};
+
+export const ALMANAC_CONFIG = {
+  maxHistoryPerOre: 10
+};

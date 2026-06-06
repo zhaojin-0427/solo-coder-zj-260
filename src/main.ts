@@ -4,6 +4,7 @@ import { MainMenuScene } from './scenes/MainMenuScene';
 import { TutorialScene } from './scenes/TutorialScene';
 import { GameScene } from './scenes/GameScene';
 import { ResultScene } from './scenes/ResultScene';
+import { AlmanacScene } from './scenes/AlmanacScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -22,7 +23,7 @@ const config: Phaser.Types.Core.GameConfig = {
       debug: false
     }
   },
-  scene: [BootScene, MainMenuScene, TutorialScene, GameScene, ResultScene]
+  scene: [BootScene, MainMenuScene, TutorialScene, GameScene, ResultScene, AlmanacScene]
 };
 
 new Phaser.Game(config);

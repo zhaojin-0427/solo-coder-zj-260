@@ -68,10 +68,36 @@ export interface HighScoreRecord {
   score: number;
   date: string;
   quality: string;
+  maxCombo?: number;
 }
 
 export interface Ratio {
   ore: number;
   charcoal: number;
   flux: number;
+}
+
+export interface SmeltingRecord {
+  oreId: string;
+  oreName: string;
+  ratio: Ratio;
+  avgTemp: number;
+  quality: number;
+  qualityName: string;
+  score: number;
+  date: string;
+  level: number;
+}
+
+export interface AlmanacEntry {
+  oreId: string;
+  unlocked: boolean;
+  bestRecord: SmeltingRecord | null;
+  history: SmeltingRecord[];
+}
+
+export interface ComboState {
+  currentCombo: number;
+  maxCombo: number;
+  lastOrderSuccess: boolean;
 }

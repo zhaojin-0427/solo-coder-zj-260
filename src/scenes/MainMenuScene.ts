@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { LEVEL_CONFIGS } from '../config/GameData';
-import { getHighScores, getTutorialComplete, setTutorialComplete } from '../utils/Storage';
+import { getHighScores, getTutorialComplete, setTutorialComplete, getGlobalMaxCombo, getAlmanac } from '../utils/Storage';
 
 export class MainMenuScene extends Phaser.Scene {
   private selectedLevel: number = 1;
@@ -141,9 +141,16 @@ export class MainMenuScene extends Phaser.Scene {
     this.tutorialButton = tutBg;
     this.tutorialButtonLabel = tutLabel;
 
-    this.createAncientButton(x, y + 130, 180, 48, '重置进度', '#b08060', () => {
+    this.createAncientButton(x, y + 130, 180, 48, '📖 工艺图鉴', '#c0a0ff', () => {
+      this.scene.start('AlmanacScene');
+    });
+
+    this.createAncientButton(x, y + 195, 180, 48, '重置进度', '#b08060', () => {
       localStorage.removeItem('smelting_furnace_high_scores');
       localStorage.removeItem('smelting_tutorial_complete');
+      localStorage.removeItem('smelting_furnace_almanac');
+      localStorage.removeItem('smelting_furnace_combo');
+      localStorage.removeItem('smelting_furnace_global_max_combo');
       this.scene.restart();
     });
   }
@@ -186,12 +193,22 @@ export class MainMenuScene extends Phaser.Scene {
 
   private createHighScoreDisplay(x: number, y: number): void {
     const scores = getHighScores().slice(0, 5);
+    const globalMaxCombo = getGlobalMaxCombo();
+    const almanac = getAlmanac();
+    const unlockedCount = Object.values(almanac).filter(e => e.unlocked).length;
+    const totalOres = Object.keys(almanac).length;
 
     this.add.text(x - 580, y, '🏆 排行榜', {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '20px',
       color: '#ffd700',
       fontStyle: 'bold'
+    });
+
+    this.add.text(x - 580, y + 30, `🔥 最高连击: ${globalMaxCombo}    📖 图鉴解锁: ${unlockedCount}/${totalOres}`, {
+      fontFamily: '"KaiTi", "STKaiti", serif',
+      fontSize: '16px',
+      color: '#ffaa66'
     });
 
     if (scores.length === 0) {
@@ -204,10 +221,11 @@ export class MainMenuScene extends Phaser.Scene {
     }
 
     scores.forEach((record, i) => {
-      const text = `#${i + 1} 第${record.level}关 ${record.quality} - ${record.score}分`;
+      const comboInfo = record.maxCombo ? ` ${record.maxCombo}连` : '';
+      const text = `#${i + 1} 第${record.level}关 ${record.quality}${comboInfo} - ${record.score}分`;
       this.add.text(x - 460 + i * 190, y, text, {
         fontFamily: '"KaiTi", "STKaiti", serif',
-        fontSize: '15px',
+        fontSize: '14px',
         color: i === 0 ? '#ffd700' : '#d0b090'
       });
     });

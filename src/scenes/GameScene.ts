@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
-import type { OreType, Ratio, LevelConfig, GameEvent, Order, SmeltResult } from '../types';
-import { ORE_TYPES, LEVEL_CONFIGS, GAME_EVENTS, FURNACE_CONFIG, QUALITY_LEVELS } from '../config/GameData';
+import type { OreType, Ratio, LevelConfig, GameEvent, Order, SmeltResult, SmeltingRecord } from '../types';
+import { ORE_TYPES, LEVEL_CONFIGS, GAME_EVENTS, FURNACE_CONFIG, QUALITY_LEVELS, COMBO_CONFIG } from '../config/GameData';
 import { calculateSmeltResult, getQualityLevel, formatTime, clamp } from '../utils/SmeltingLogic';
-import { saveHighScore } from '../utils/Storage';
+import { saveHighScore, saveSmeltingRecord, saveComboState, getComboState, saveGlobalMaxCombo } from '../utils/Storage';
 
 type GamePhase = 'preparing' | 'smelting' | 'result';
 
@@ -26,6 +26,9 @@ export class GameScene extends Phaser.Scene {
   private eventTimer: number = 0;
   private eventCooldown: number = 0;
   private currentOrder: Order | null = null;
+  private currentCombo: number = 0;
+  private maxCombo: number = 0;
+  private lastSmeltRecord: SmeltingRecord | null = null;
 
   private furnaceGlow!: Phaser.GameObjects.Graphics;
   private fireParticles!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -38,6 +41,7 @@ export class GameScene extends Phaser.Scene {
   private resultPanel!: Phaser.GameObjects.Container;
   private eventBanner!: Phaser.GameObjects.Container;
   private scoreText!: Phaser.GameObjects.Text;
+  private comboText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
   private orderCounterText!: Phaser.GameObjects.Text;
   private blowButton!: Phaser.GameObjects.Rectangle;
@@ -73,6 +77,10 @@ export class GameScene extends Phaser.Scene {
     this.eventCooldown = 10;
     this.currentOre = ORE_TYPES[this.levelConfig.availableOres[0]];
     this.ratio = { ore: 6, charcoal: 4, flux: 2 };
+    const comboState = getComboState();
+    this.currentCombo = comboState.currentCombo;
+    this.maxCombo = comboState.maxCombo;
+    this.lastSmeltRecord = null;
     this.generateOrder();
   }
 
@@ -117,11 +125,14 @@ export class GameScene extends Phaser.Scene {
     this.add.text(80, 30, `第${this.level}关 - ${this.levelConfig.name}`, {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '18px', color: '#ffd700', fontStyle: 'bold'
     }).setOrigin(0, 0.5);
-    this.timeText = this.add.text(width / 2 - 120, 30, '时间: 03:00', {
+    this.timeText = this.add.text(250, 30, '时间: 03:00', {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '18px', color: '#e8c080'
     }).setOrigin(0, 0.5);
-    this.scoreText = this.add.text(width / 2 + 40, 30, '得分: 0', {
+    this.scoreText = this.add.text(430, 30, '得分: 0', {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '18px', color: '#ffd700'
+    }).setOrigin(0, 0.5);
+    this.comboText = this.add.text(590, 30, '连击: x1.0', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '18px', color: '#ffaa66', fontStyle: 'bold'
     }).setOrigin(0, 0.5);
     this.orderCounterText = this.add.text(width - 200, 30, `订单: 0/${this.totalOrders}`, {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '18px', color: '#e8c080'
@@ -394,19 +405,53 @@ export class GameScene extends Phaser.Scene {
       orderMatch = actualQ >= targetQ;
       if (orderMatch) {
         this.completedOrders++;
+        this.currentCombo++;
+        if (this.currentCombo > this.maxCombo) {
+          this.maxCombo = this.currentCombo;
+        }
+        const comboMult = Math.min(
+          COMBO_CONFIG.baseMultiplier + (this.currentCombo - 1) * COMBO_CONFIG.multiplierPerCombo,
+          COMBO_CONFIG.maxMultiplier
+        );
         const bonus = this.currentOrder.isEmergency ? 2 : 1;
-        this.totalScore += result.score * bonus + this.currentOrder.bonus;
+        const baseGain = result.score * bonus + this.currentOrder.bonus;
+        this.totalScore += Math.floor(baseGain * comboMult);
       } else {
+        if (COMBO_CONFIG.breakOnFailure) {
+          this.currentCombo = 0;
+        }
         this.totalScore += Math.floor(result.score * 0.3);
       }
     }
-    this.showResultPanel(result, orderMatch);
+
+    saveComboState({
+      currentCombo: this.currentCombo,
+      maxCombo: this.maxCombo,
+      lastOrderSuccess: orderMatch
+    });
+
+    const record: SmeltingRecord = {
+      oreId: this.currentOre.id,
+      oreName: this.currentOre.name,
+      ratio: { ...this.ratio },
+      avgTemp: this.avgTemperature,
+      quality: result.quality,
+      qualityName: result.qualityName,
+      score: result.score,
+      date: new Date().toLocaleDateString('zh-CN'),
+      level: this.level
+    };
+    this.lastSmeltRecord = record;
+    saveSmeltingRecord(record);
+
+    this.showResultPanel(result, orderMatch, record);
 
     saveHighScore({
       level: this.level,
       score: this.totalScore,
       date: new Date().toLocaleDateString('zh-CN'),
-      quality: result.qualityName
+      quality: result.qualityName,
+      maxCombo: this.maxCombo
     });
   }
 
@@ -424,60 +469,138 @@ export class GameScene extends Phaser.Scene {
   private createResultPanel(x: number, y: number): void {
     this.resultPanel = this.add.container(x, y);
     this.resultPanel.setVisible(false);
-    const bg = this.add.rectangle(0, 0, 500, 400, 0x1a0f0a).setStrokeStyle(4, 0xffd700);
-    const title = this.add.text(0, -170, '冶炼结果', {
+    const bg = this.add.rectangle(0, 0, 560, 520, 0x1a0f0a).setStrokeStyle(4, 0xffd700);
+    const title = this.add.text(0, -235, '冶炼结果', {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '32px', color: '#ffd700', fontStyle: 'bold'
     }).setOrigin(0.5);
-    const qLabel = this.add.text(0, -100, '', {
+    const qLabel = this.add.text(0, -185, '', {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '40px', fontStyle: 'bold'
     }).setOrigin(0.5).setName('resultQuality');
-    const score = this.add.text(0, -40, '', {
-      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '24px', color: '#e8c080'
-    }).setOrigin(0.5).setName('resultScore');
+
+    const detailBox = this.add.rectangle(0, -85, 500, 160, 0x2a1a10).setStrokeStyle(2, 0x5c3a1e);
+
+    const oreLabel = this.add.text(-230, -150, '矿石:', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#a08060'
+    }).setName('resultOreLabel');
+    const oreVal = this.add.text(-170, -150, '', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#e8c080'
+    }).setName('resultOre');
+
+    const ratioLabel = this.add.text(-230, -120, '配比:', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#a08060'
+    }).setName('resultRatioLabel');
+    const ratioVal = this.add.text(-170, -120, '', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#e8c080'
+    }).setName('resultRatio');
+
+    const tempLabel = this.add.text(-230, -90, '平均炉温:', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#a08060'
+    }).setName('resultTempLabel');
+    const tempVal = this.add.text(-140, -90, '', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#ffaa66'
+    }).setName('resultTemp');
+
+    const comboLabel = this.add.text(-230, -60, '连击:', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#a08060'
+    }).setName('resultComboLabel');
+    const comboVal = this.add.text(-170, -60, '', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#ffcc44', fontStyle: 'bold'
+    }).setName('resultCombo');
+
+    const scoreLabel = this.add.text(20, -150, '品质得分:', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#a08060'
+    }).setName('resultScoreLabel');
+    const scoreVal = this.add.text(110, -150, '', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#ffd700', fontStyle: 'bold'
+    }).setName('resultScore');
+
+    const timeLabel = this.add.text(20, -120, '耗时:', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#a08060'
+    }).setName('resultTimeLabel');
+    const timeVal = this.add.text(80, -120, '', {
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '16px', color: '#e8c080'
+    }).setName('resultTime');
+
     const details = this.add.text(0, 30, '', {
-      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '15px', color: '#c0a080',
-      align: 'center', wordWrap: { width: 450 }
+      fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '14px', color: '#c0a080',
+      align: 'center', wordWrap: { width: 500 }
     }).setOrigin(0.5, 0).setName('resultDetails');
-    const orderStatus = this.add.text(0, 130, '', {
+    const orderStatus = this.add.text(0, 175, '', {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '18px'
     }).setOrigin(0.5).setName('orderStatus');
 
-    const contBtn = this.add.rectangle(0, 170, 180, 45, 0x4a6030)
+    const contBtn = this.add.rectangle(0, 225, 180, 45, 0x4a6030)
       .setStrokeStyle(3, 0x8b6914).setInteractive({ useHandCursor: true });
-    this.add.text(0, 170, '继续冶炼', {
+    this.add.text(0, 225, '继续冶炼', {
       fontFamily: '"KaiTi", "STKaiti", serif', fontSize: '20px', color: '#aaff66', fontStyle: 'bold'
     }).setOrigin(0.5);
     contBtn.on('pointerdown', () => this.nextSmelt());
 
-    this.resultPanel.add([bg, title, qLabel, score, details, orderStatus, contBtn]);
+    this.resultPanel.add([
+      bg, title, qLabel, detailBox,
+      oreLabel, oreVal, ratioLabel, ratioVal, tempLabel, tempVal, comboLabel, comboVal,
+      scoreLabel, scoreVal, timeLabel, timeVal,
+      details, orderStatus, contBtn
+    ]);
   }
 
-  private showResultPanel(result: SmeltResult, orderMatch: boolean): void {
+  private showResultPanel(result: SmeltResult, orderMatch: boolean, record: SmeltingRecord): void {
     this.resultPanel.setVisible(true);
     const q = getQualityLevel(result.quality);
     const ql = this.resultPanel.getByName('resultQuality') as Phaser.GameObjects.Text;
     ql.setText(result.qualityName).setColor('#' + q.color.toString(16).padStart(6, '0'));
+
+    const oreText = this.resultPanel.getByName('resultOre') as Phaser.GameObjects.Text;
+    oreText.setText(`${record.oreName}`);
+
+    const ratioText = this.resultPanel.getByName('resultRatio') as Phaser.GameObjects.Text;
+    ratioText.setText(`矿${record.ratio.ore} / 炭${record.ratio.charcoal} / 熔${record.ratio.flux}`);
+
+    const tempText = this.resultPanel.getByName('resultTemp') as Phaser.GameObjects.Text;
+    tempText.setText(`${Math.round(record.avgTemp)}°C`);
+
+    const comboMult = Math.min(
+      COMBO_CONFIG.baseMultiplier + Math.max(0, this.currentCombo - 1) * COMBO_CONFIG.multiplierPerCombo,
+      COMBO_CONFIG.maxMultiplier
+    );
+    const comboText = this.resultPanel.getByName('resultCombo') as Phaser.GameObjects.Text;
+    if (this.currentCombo > 0 && orderMatch) {
+      comboText.setText(`${this.currentCombo}连击 (x${comboMult.toFixed(1)})`);
+    } else if (!orderMatch) {
+      comboText.setText('已中断');
+    } else {
+      comboText.setText('0');
+    }
+
     const sc = this.resultPanel.getByName('resultScore') as Phaser.GameObjects.Text;
-    sc.setText(`品质得分: ${result.quality}分 | 耗时: ${result.timeSpent.toFixed(1)}秒`);
+    sc.setText(`${result.quality}分`);
+
+    const tm = this.resultPanel.getByName('resultTime') as Phaser.GameObjects.Text;
+    tm.setText(`${result.timeSpent.toFixed(1)}秒`);
+
     const dt = this.resultPanel.getByName('resultDetails') as Phaser.GameObjects.Text;
     dt.setText(result.messages.join('\n'));
+
     const os = this.resultPanel.getByName('orderStatus') as Phaser.GameObjects.Text;
     if (orderMatch) {
-      os.setText('✅ 订单达标！').setColor('#80ff80');
+      const extraText = this.currentCombo > 1 ? ` (连击奖励 x${comboMult.toFixed(1)})` : '';
+      os.setText(`✅ 订单达标！${extraText}`).setColor('#80ff80');
     } else {
-      os.setText('❌ 未达订单要求').setColor('#ff8080');
+      os.setText('❌ 未达订单要求（连击已中断）').setColor('#ff8080');
     }
   }
 
   private nextSmelt(): void {
     this.resultPanel.setVisible(false);
     if (this.completedOrders >= this.totalOrders || this.levelTime <= 0 || this.furnaceHealth <= 0) {
+      saveGlobalMaxCombo(this.maxCombo);
       this.scene.start('ResultScene', {
         level: this.level,
         score: this.totalScore,
         completed: this.completedOrders,
         total: this.totalOrders,
-        success: this.completedOrders >= Math.ceil(this.totalOrders * 0.6)
+        success: this.completedOrders >= Math.ceil(this.totalOrders * 0.6),
+        maxCombo: this.maxCombo
       });
       return;
     }
@@ -577,6 +700,20 @@ export class GameScene extends Phaser.Scene {
     this.timeText.setText(`时间: ${formatTime(this.levelTime)}`);
     this.scoreText.setText(`得分: ${this.totalScore}`);
     this.orderCounterText.setText(`订单: ${this.completedOrders}/${this.totalOrders}`);
+
+    const comboMult = Math.min(
+      COMBO_CONFIG.baseMultiplier + Math.max(0, this.currentCombo - 1) * COMBO_CONFIG.multiplierPerCombo,
+      COMBO_CONFIG.maxMultiplier
+    );
+    if (this.comboText) {
+      if (this.currentCombo > 0) {
+        this.comboText.setText(`🔥 ${this.currentCombo}连击 x${comboMult.toFixed(1)}`);
+        this.comboText.setColor(this.currentCombo >= 5 ? '#ffd700' : '#ffaa66');
+      } else {
+        this.comboText.setText(`连击: x${comboMult.toFixed(1)}`);
+        this.comboText.setColor('#a08060');
+      }
+    }
 
     const gw = 280;
     const norm = clamp((this.temperature - 200) / 1600, 0, 1);
