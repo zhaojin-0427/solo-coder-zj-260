@@ -160,5 +160,8 @@ export class TutorialScene extends Phaser.Scene {
     this.titleText.setText(TUTORIAL_PAGES[this.currentPage].title);
     this.contentText.setText(TUTORIAL_PAGES[this.currentPage].content);
     this.pageIndicator.setText(`第 ${this.currentPage + 1} / ${TUTORIAL_PAGES.length} 页`);
+    if (this.currentPage >= TUTORIAL_PAGES.length - 1) {
+      setTutorialComplete();
+    }
   }
 }
