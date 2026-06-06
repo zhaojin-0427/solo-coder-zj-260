@@ -1,0 +1,18 @@
+{
+  "name": "smelting-furnace-game",
+  "version": "1.0.0",
+  "description": "传统冶炼炉温控制与矿石配比挑战小游戏",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 9101",
+    "build": "tsc && vite build",
+    "preview": "vite preview --port 9101"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
