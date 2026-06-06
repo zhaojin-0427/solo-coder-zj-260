@@ -442,7 +442,9 @@ export class GameScene extends Phaser.Scene {
       level: this.level
     };
     this.lastSmeltRecord = record;
-    saveSmeltingRecord(record);
+    if (orderMatch) {
+      saveSmeltingRecord(record);
+    }
 
     this.showResultPanel(result, orderMatch, record);
 

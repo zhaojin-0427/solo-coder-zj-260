@@ -7,6 +7,7 @@ export class AlmanacScene extends Phaser.Scene {
   private selectedOreId: string | null = null;
   private oreButtons: Map<string, Phaser.GameObjects.Container> = new Map();
   private detailContainer!: Phaser.GameObjects.Container;
+  private dynamicContent: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
     super('AlmanacScene');
@@ -94,14 +95,16 @@ export class AlmanacScene extends Phaser.Scene {
   private createDetailPanel(x: number, y: number): void {
     this.detailContainer = this.add.container(x, y);
 
-    this.add.rectangle(x, y, 760, 500, 0x2a1a10).setStrokeStyle(3, 0x5c3a1e);
+    const bg = this.add.rectangle(0, 0, 760, 520, 0x2a1a10).setStrokeStyle(3, 0x5c3a1e);
 
-    this.add.text(x - 350, y - 230, '矿石详情', {
+    const title = this.add.text(-350, -240, '矿石详情', {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '22px',
       color: '#ffd700',
       fontStyle: 'bold'
     });
+
+    this.detailContainer.add([bg, title]);
   }
 
   private selectOre(oreId: string): void {
@@ -117,105 +120,114 @@ export class AlmanacScene extends Phaser.Scene {
     this.updateDetailPanel();
   }
 
+  private clearDynamicContent(): void {
+    this.dynamicContent.forEach(obj => obj.destroy());
+    this.dynamicContent = [];
+  }
+
+  private addDynamic(obj: Phaser.GameObjects.GameObject): void {
+    this.dynamicContent.push(obj);
+    this.detailContainer.add(obj);
+  }
+
   private updateDetailPanel(): void {
     if (!this.selectedOreId) return;
 
     const ore = ORE_TYPES[this.selectedOreId];
     const almanac = getAlmanac();
     const entry: AlmanacEntry | undefined = almanac[this.selectedOreId];
-    const x = this.detailContainer.x;
-    const y = this.detailContainer.y;
 
-    const toRemove: Phaser.GameObjects.GameObject[] = [];
-    this.detailContainer.each((child: Phaser.GameObjects.GameObject) => {
-      if (child !== this.detailContainer) toRemove.push(child);
-    });
-    toRemove.forEach(c => c.destroy());
+    this.clearDynamicContent();
 
     if (!entry || !entry.unlocked) {
-      const locked = this.add.text(x, y, '🔒 尚未解锁\n\n成功冶炼此矿石后即可解锁图鉴', {
+      const locked = this.add.text(0, 0, '🔒 尚未解锁\n\n成功冶炼并达成订单后即可解锁此图鉴', {
         fontFamily: '"KaiTi", "STKaiti", serif',
         fontSize: '24px',
         color: '#808080',
         align: 'center'
       }).setOrigin(0.5);
-      this.detailContainer.add(locked);
+      this.addDynamic(locked);
       return;
     }
 
-    const oreDot = this.add.circle(x - 330, y - 180, 30, ore.color).setStrokeStyle(3, 0xffd700);
-    const oreName = this.add.text(x - 270, y - 200, ore.name, {
+    const oreDot = this.add.circle(-330, -180, 28, ore.color).setStrokeStyle(3, 0xffd700);
+    const oreName = this.add.text(-270, -200, ore.name, {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '28px',
       color: '#ffd700',
       fontStyle: 'bold'
     });
-    const oreGrade = this.add.text(x - 270, y - 165, `品位 ${Math.round(ore.grade * 100)}%`, {
+    const oreGrade = this.add.text(-270, -165, `品位 ${Math.round(ore.grade * 100)}%`, {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '16px',
       color: '#e8c080'
     });
-    const oreDesc = this.add.text(x - 330, y - 120, ore.description, {
+    const oreDesc = this.add.text(-330, -125, ore.description, {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '15px',
       color: '#a08060',
-      wordWrap: { width: 720 }
+      wordWrap: { width: 700 }
     });
-    this.detailContainer.add([oreDot, oreName, oreGrade, oreDesc]);
+    this.addDynamic(oreDot);
+    this.addDynamic(oreName);
+    this.addDynamic(oreGrade);
+    this.addDynamic(oreDesc);
 
     const infoText = `理想炉温: ${ore.baseTempRequired}°C  |  冶炼时间: ${ore.baseSmeltTime}秒`;
-    const info = this.add.text(x - 330, y - 80, infoText, {
+    const info = this.add.text(-330, -85, infoText, {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '16px',
       color: '#c0a080'
     });
-    this.detailContainer.add(info);
+    this.addDynamic(info);
 
-    this.add.rectangle(x, y - 45, 720, 2, 0x5c3a1e);
+    const divider1 = this.add.rectangle(0, -55, 720, 2, 0x5c3a1e);
+    this.addDynamic(divider1);
 
     if (entry.bestRecord) {
-      const bestTitle = this.add.text(x - 330, y - 20, '🏆 最佳冶炼记录', {
+      const bestTitle = this.add.text(-330, -30, '🏆 最佳冶炼记录', {
         fontFamily: '"KaiTi", "STKaiti", serif',
         fontSize: '20px',
         color: '#ffd700',
         fontStyle: 'bold'
       });
-      this.detailContainer.add(bestTitle);
-      this.renderRecord(entry.bestRecord, x - 330, y + 10, true);
+      this.addDynamic(bestTitle);
+      this.renderRecord(entry.bestRecord, -330, 0);
     } else {
-      const noBest = this.add.text(x - 330, y, '暂无最佳记录', {
+      const noBest = this.add.text(-330, -15, '暂无最佳记录', {
         fontFamily: '"KaiTi", "STKaiti", serif',
         fontSize: '16px',
         color: '#808080'
       });
-      this.detailContainer.add(noBest);
+      this.addDynamic(noBest);
     }
 
-    this.add.rectangle(x, y + 120, 720, 2, 0x5c3a1e);
+    const divider2 = this.add.rectangle(0, 100, 720, 2, 0x5c3a1e);
+    this.addDynamic(divider2);
 
-    const historyTitle = this.add.text(x - 330, y + 145, '📜 历史记录（最近10次）', {
+    const historyTitle = this.add.text(-330, 125, '📜 历史记录（最近10次）', {
       fontFamily: '"KaiTi", "STKaiti", serif',
       fontSize: '18px',
       color: '#e8c080',
       fontStyle: 'bold'
     });
-    this.detailContainer.add(historyTitle);
+    this.addDynamic(historyTitle);
 
     if (entry.history.length === 0) {
-      const noHistory = this.add.text(x - 330, y + 180, '暂无历史记录', {
+      const noHistory = this.add.text(-330, 160, '暂无历史记录', {
         fontFamily: '"KaiTi", "STKaiti", serif',
         fontSize: '15px',
         color: '#808080'
       });
-      this.detailContainer.add(noHistory);
+      this.addDynamic(noHistory);
     } else {
-      entry.history.slice(0, 5).forEach((record, idx) => {
-        this.renderCompactRecord(record, x - 330, y + 180 + idx * 32);
+      entry.history.slice(0, 10).forEach((record, idx) => {
+        this.renderCompactRecord(record, -330, 160 + idx * 26);
       });
     }
   }
 
-  private renderRecord(record: SmeltingRecord, x: number, y: number, isBest: boolean): void {
+  private renderRecord(record: SmeltingRecord, x: number, y: number): void {
     const qLevel = QUALITY_LEVELS.find(q => q.name === record.qualityName);
     const qColor = qLevel ? '#' + qLevel.color.toString(16).padStart(6, '0') : '#ffffff';
 
@@ -249,7 +261,11 @@ export class AlmanacScene extends Phaser.Scene {
       color: '#ffaa66'
     });
 
-    this.detailContainer.add([qualityText, scoreText, dateText, ratio, tempText]);
+    this.addDynamic(qualityText);
+    this.addDynamic(scoreText);
+    this.addDynamic(dateText);
+    this.addDynamic(ratio);
+    this.addDynamic(tempText);
   }
 
   private renderCompactRecord(record: SmeltingRecord, x: number, y: number): void {
@@ -260,10 +276,10 @@ export class AlmanacScene extends Phaser.Scene {
       `矿${record.ratio.ore}/炭${record.ratio.charcoal}/熔${record.ratio.flux}  ${Math.round(record.avgTemp)}°C`;
     const label = this.add.text(x, y, text, {
       fontFamily: '"KaiTi", "STKaiti", serif',
-      fontSize: '14px',
+      fontSize: '13px',
       color: qColor
     });
-    this.detailContainer.add(label);
+    this.addDynamic(label);
   }
 
   private createBackButton(x: number, y: number): void {
